@@ -1,0 +1,14 @@
+{
+  "name": "pomodoro-orb",
+  "productName": "PomodoroOrb",
+  "version": "1.0.0",
+  "description": "A tiny always-on-top pomodoro floating orb for macOS",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

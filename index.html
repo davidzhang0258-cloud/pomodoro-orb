@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pomodoro Floating Orb</title>
+  <style>
+    /* 默认深色主题变量 */
+    :root {
+      --label-primary: #f1f5f9;
+      --label-secondary: #94a3b8;
+      --border-l1: rgba(255, 255, 255, 0.14);
+      --bg-layer-1: rgba(15, 23, 42, 0.92);
+      --bg-layer-2: rgba(30, 41, 59, 0.88);
+      --brand-primary: #6366f1;
+      --warn-primary: #f59e0b;
+      --orb-shadow: 0 10px 28px -4px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.22);
+      --pop-shadow: 0 22px 48px -8px rgba(0,0,0,0.55), 0 4px 14px -2px rgba(0,0,0,0.35);
+    }
+
+    /* 自动跟随 macOS 浅色模式 */
+    @media (prefers-color-scheme: light) {
+      :root {
+        --label-primary: #1e293b;
+        --label-secondary: #64748b;
+        --border-l1: rgba(15, 23, 42, 0.12);
+        --bg-layer-1: rgba(255, 255, 255, 0.94);
+        --bg-layer-2: rgba(241, 245, 249, 0.92);
+        --brand-primary: #4f46e5;
+        --warn-primary: #d97706;
+        --orb-shadow: 0 10px 26px -4px rgba(15, 23, 42, 0.18), inset 0 1px 2px rgba(255,255,255,0.9);
+        --pop-shadow: 0 20px 44px -8px rgba(15, 23, 42, 0.20), 0 4px 14px -2px rgba(15, 23, 42, 0.08);
+      }
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: transparent; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      color: var(--label-primary);
+    }
+    .stage {
+      width: 100%; height: 100%; padding: 8px 12px;
+      display: flex; flex-direction: column; align-items: flex-end;
+    }
+    .orb-btn {
+      position: relative; width: 60px; height: 60px; border-radius: 999px;
+      border: 1px solid var(--border-l1); background: var(--bg-layer-1);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      box-shadow: var(--orb-shadow);
+      display: flex; align-items: center; justify-content: center;
+      cursor: grab; transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .orb-btn:hover { transform: scale(1.06); }
+    .orb-btn:active { cursor: grabbing; transform: scale(0.97); }
+    .orb-ring-svg {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      transform: rotate(-90deg); pointer-events: none;
+    }
+    @keyframes emojiFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+    .orb-emoji {
+      font-size: 30px; line-height: 1; display: flex;
+      align-items: center; justify-content: center;
+      animation: emojiFloat 3s ease-in-out infinite; pointer-events: none;
+    }
+    .orb-badge {
+      position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+      padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700;
+      line-height: 14px; color: #fff; font-variant-numeric: tabular-nums;
+      white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.28); pointer-events: none;
+    }
+    .badge-work { background: #10b981; }
+    .badge-break { background: #f59e0b; }
+    .badge-pomo { background: #6366f1; }
+    .badge-idle { background: #64748b; }
+
+    .popover {
+      margin-top: 12px; width: 320px; border-radius: 16px;
+      border: 1px solid var(--border-l1); background: var(--bg-layer-1);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      box-shadow: var(--pop-shadow);
+      padding: 13px; display: flex; flex-direction: column; gap: 10px;
+      opacity: 0; pointer-events: none; transform: translateY(8px) scale(0.97);
+      transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .popover.open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+    .mode-row, .controls, .stats-row { display: flex; gap: 6px; }
+    .mode-chip {
+      flex: 1; padding: 6px 8px; border: 1px solid var(--border-l1); border-radius: 8px;
+      background: var(--bg-layer-2); color: var(--label-secondary); font-size: 12px; cursor: pointer;
+    }
+    .mode-chip.active { color: var(--label-primary); border-color: var(--brand-primary); font-weight: 600; }
+    .mode-chip:disabled { opacity: 0.45; cursor: default; }
+    .dual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .dual-card {
+      border-radius: 12px; padding: 9px 10px; border: 1px solid var(--border-l1);
+      background: var(--bg-layer-2); display: flex; flex-direction: column; gap: 2px;
+    }
+    .dual-card.active-work { border-color: #10b981; }
+    .dual-card.active-break { border-color: #f59e0b; background: rgba(245, 158, 11, 0.14); }
+    .dual-head { font-size: 11px; color: var(--label-secondary); display: flex; justify-content: space-between; align-items: center; }
+    .dual-time { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .dual-sub { font-size: 10px; color: var(--label-secondary); margin-top: 2px; }
+
+    /* 新增：分段计时（如单篇阅读掐表）专属条 */
+    .lap-box {
+      border-radius: 10px; padding: 8px 10px; border: 1px dashed var(--border-l1);
+      background: var(--bg-layer-2); display: flex; flex-direction: column; gap: 6px;
+    }
+    .lap-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .lap-input {
+      flex: 1; min-width: 0; padding: 4px 7px; border-radius: 6px;
+      border: 1px solid var(--border-l1); background: var(--bg-layer-1);
+      color: var(--label-primary); font-size: 11px; outline: none;
+      user-select: text; -webkit-user-select: text;
+    }
+    .lap-input:focus { border-color: var(--brand-primary); }
+    .lap-time {
+      font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+      color: var(--brand-primary); white-space: nowrap;
+    }
+    .lap-btn {
+      padding: 4px 8px; border-radius: 6px; border: none;
+      background: var(--brand-primary); color: #fff; font-size: 11px;
+      font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .lap-btn:disabled { opacity: 0.4; cursor: default; }
+    .lap-reset-btn {
+      padding: 4px 6px; border-radius: 6px; border: 1px solid var(--border-l1);
+      background: transparent; color: var(--label-secondary); font-size: 10px; cursor: pointer;
+    }
+
+    .dur-row { display: flex; gap: 6px; justify-content: center; }
+    .dur-chip {
+      padding: 4px 10px; border: 1px solid var(--border-l1); border-radius: 999px;
+      background: var(--bg-layer-2); color: var(--label-secondary); font-size: 11px; cursor: pointer;
+    }
+    .dur-chip.active { color: var(--label-primary); border-color: var(--brand-primary); font-weight: 600; }
+    .btn-primary {
+      flex: 2; padding: 8px 0; border: none; border-radius: 10px;
+      background: var(--brand-primary); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .btn-primary.pause { background: var(--warn-primary); }
+    .btn-secondary {
+      flex: 1; padding: 8px 0; border: 1px solid var(--border-l1); border-radius: 10px;
+      background: var(--bg-layer-2); color: var(--label-primary); font-size: 12px; cursor: pointer;
+    }
+    .btn-secondary:disabled { opacity: 0.4; cursor: default; }
+    .stat-box {
+      flex: 1; border: 1px solid var(--border-l1); border-radius: 10px;
+      background: var(--bg-layer-2); padding: 6px 8px; text-align: center;
+    }
+    .stat-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat-lbl { font-size: 10px; color: var(--label-secondary); margin-top: 2px; }
+    .records-wrap { border-top: 1px solid var(--border-l1); padding-top: 7px; max-height: 155px; overflow-y: auto; }
+    .records-head { display: flex; justify-content: space-between; font-size: 11px; color: var(--label-secondary); margin-bottom: 4px; }
+    .btn-clear { border: none; background: transparent; color: var(--label-secondary); font-size: 11px; cursor: pointer; }
+    .rec-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 11px; border-bottom: 0.5px solid var(--border-l1); }
+    .rec-row:last-child { border-bottom: none; }
+    .rec-sep { flex: 1; border-top: 1px dashed var(--border-l1); }
+    .break-row { display: flex; align-items: center; gap: 6px; padding: 2px 0 2px 16px; font-size: 10px; color: var(--label-secondary); }
+    .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--label-primary); padding: 2px 0; }
+    .settings-row input[type="checkbox"] { accent-color: var(--brand-primary); width: 15px; height: 15px; cursor: pointer; }
+    .settings-select { padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border-l1); background: var(--bg-layer-2); color: var(--label-primary); font-size: 11px; cursor: pointer; }
+    .btn-link { width: 100%; border: 1px solid var(--border-l1); border-radius: 8px; background: var(--bg-layer-2); color: var(--label-primary); font-size: 11px; padding: 6px 8px; cursor: pointer; }
+    .btn-link:hover { background: var(--bg-layer-1); }
+    .settings-note { font-size: 10px; color: var(--label-secondary); line-height: 1.5; }
+    .hint-bar { font-size: 10px; color: var(--label-secondary); text-align: center; opacity: 0.75; }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="orb-btn" id="orb-btn" title="按住跨屏拖动 · 单击固定面板 · Option+L 隐藏">
+      <svg class="orb-ring-svg" viewBox="0 0 60 60">
+        <circle cx="30" cy="30" r="26.5" fill="none" stroke="currentColor" stroke-opacity="0.14" stroke-width="3.5"></circle>
+        <circle id="orb-ring-fg" cx="30" cy="30" r="26.5" fill="none" stroke="#10b981" stroke-width="3.8"
+                stroke-dasharray="166.5" stroke-dashoffset="120" stroke-linecap="round"></circle>
+      </svg>
+      <span class="orb-emoji">🍅</span>
+      <span class="orb-badge badge-idle" id="orb-badge">00:00</span>
+    </div>
+    <div class="popover" id="popover"></div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const STORAGE_KEY = 'dsh.pomodoro.standalone.v2';
+    const DASH_STEP_MS = 45 * 60000;
+    const CIRC = 166.5;
+
+    const pad = (n) => String(Math.max(0, Math.floor(n))).padStart(2, '0');
+    function fmtClockMs(ms) {
+      const total = Math.max(0, Math.round(ms / 1000));
+      const hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
+      return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
+    }
+    function fmtDayTime(iso) {
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? '--:--' : `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function fmtDuration(ms) {
+      const totalMin = Math.max(0, Math.round(ms / 60000));
+      const hh = Math.floor(totalMin / 60), mm = totalMin % 60;
+      return hh > 0 ? `${hh}h ${mm}m` : `${mm}m`;
+    }
+    function sameLocalDay(a, b) {
+      return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    }
+    const liveBreakMs = (b) => Math.max(0, Date.now() - (Date.parse(b.startedAt) || Date.now()));
+    const closedBreakMs = (b) => Math.max(0, (Date.parse(b.endedAt) || 0) - (Date.parse(b.startedAt) || 0));
+
+    let state = (() => {
+      const fallback = {
+        focusMin: 25, breakMin: 5, mode: 'focus', status: 'idle', view: 'timer',
+        accruedMs: 0, durationMs: 25 * 60000, startedAt: null,
+        stopwatch: {
+          status: 'idle', elapsedMs: 0, pauseMs: 0, pausedTotalMs: 0,
+          startedAt: null, pausedAt: null, breaks: [],
+          lapStartElapsedMs: 0, lapLabel: '', laps: []
+        },
+        records: []
+      };
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('dsh.pomodoro.standalone.v1');
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return {
+          ...fallback,
+          ...parsed,
+          stopwatch: { ...fallback.stopwatch, ...(parsed.stopwatch || {}) }
+        };
+      } catch { return fallback; }
+    })();
+
+    let hovered = false, pinned = false, hoverTimer = null, lastTickAt = Date.now();
+    let settingsOpen = false;
+    let appSettings = { hotkey: 'Alt+L', autoStart: false };
+    const saveState = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {} };
+
+    function summarize(now) {
+      let todayMs = 0, todayBreakMs = 0, todayCount = 0;
+      for (const r of state.records) {
+        if (!sameLocalDay(new Date(r.startedAt), now)) continue;
+        if (r.mode === 'focus') {
+          todayMs += r.actualMs;
+          if (r.completed && r.source !== 'stopwatch') todayCount += 1;
+          for (const b of (r.breaks || [])) todayBreakMs += b.endedAt === null ? liveBreakMs(b) : closedBreakMs(b);
+        } else if (r.mode === 'break') todayBreakMs += r.actualMs;
+      }
+      const sw = state.stopwatch;
+      if (sw.status === 'running' || sw.status === 'paused') {
+        todayMs += sw.elapsedMs || 0;
+        todayBreakMs += (sw.pausedTotalMs || 0) + (sw.status === 'paused' ? (sw.pauseMs || 0) : 0);
+      }
+      return { todayMs, todayBreakMs, todayCount };
+    }
+
+    function makeRecord(now, mode, startedAt, plannedMs, actualMs, completed, source, breaks = [], laps = []) {
+      return {
+        id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+        mode, startedAt: startedAt ?? new Date(now).toISOString(), endedAt: new Date(now).toISOString(),
+        plannedMs, actualMs: Math.min(plannedMs, Math.max(0, actualMs)), completed, source, breaks, laps
+      };
+    }
+
+    setInterval(() => {
+      const now = Date.now();
+      const elapsed = Math.min(120000, Math.max(0, now - lastTickAt));
+      lastTickAt = now;
+      let changed = false;
+
+      if (state.status === 'running') {
+        const next = state.accruedMs + elapsed;
+        if (next >= state.durationMs) {
+          const rec = makeRecord(now, state.mode, state.startedAt, state.durationMs, state.durationMs, true, 'pomodoro');
+          const nextMode = state.mode === 'focus' ? 'break' : 'focus';
+          const nextStatus = state.mode === 'focus' ? 'running' : 'idle';
+          state = {
+            ...state, mode: nextMode, status: nextStatus, view: state.view === 'timer' ? 'timer' : nextMode,
+            accruedMs: 0, durationMs: (nextMode === 'focus' ? state.focusMin : state.breakMin) * 60000,
+            startedAt: nextStatus === 'running' ? new Date(now).toISOString() : null,
+            records: [...state.records, rec].slice(-200)
+          };
+        } else state.accruedMs = next;
+        changed = true;
+      }
+      if (state.stopwatch.status === 'running') { state.stopwatch.elapsedMs += elapsed; changed = true; }
+      else if (state.stopwatch.status === 'paused') { state.stopwatch.pauseMs += elapsed; changed = true; }
+      if (changed) { saveState(); updateDynamicNodes(); }
+    }, 1000);
+
+    const orbBtn = document.getElementById('orb-btn');
+    const orbRingFg = document.getElementById('orb-ring-fg');
+    const orbBadge = document.getElementById('orb-badge');
+    const popover = document.getElementById('popover');
+
+    function syncInteractive(inside) {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      if (inside) {
+        hovered = true;
+        popover.classList.add('open');
+        ipcRenderer.send('pomo:set-ignore-mouse', false);
+      } else {
+        hoverTimer = setTimeout(() => {
+          hovered = false;
+          const keepOpen = pinned;
+          popover.classList.toggle('open', keepOpen);
+          ipcRenderer.send('pomo:set-ignore-mouse', !keepOpen);
+        }, 180);
+      }
+    }
+
+    orbBtn.addEventListener('mouseenter', () => syncInteractive(true));
+    orbBtn.addEventListener('mouseleave', () => syncInteractive(false));
+    popover.addEventListener('mouseenter', () => syncInteractive(true));
+    popover.addEventListener('mouseleave', () => syncInteractive(false));
+
+    // 跨外接屏幕拖拽（由主进程 getCursorScreenPoint 驱动）
+    let dragStartPos = null;
+    orbBtn.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.altKey) {
+        ipcRenderer.send('pomo:hide-window');
+        return;
+      }
+      dragStartPos = { x: e.screenX, y: e.screenY };
+      ipcRenderer.send('pomo:drag-start');
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (!dragStartPos) return;
+      ipcRenderer.send('pomo:drag-end');
+      const dist = Math.hypot(e.screenX - dragStartPos.x, e.screenY - dragStartPos.y);
+      dragStartPos = null;
+      if (dist < 5) {
+        pinned = !pinned;
+        popover.classList.toggle('open', hovered || pinned);
+        render();
+      }
+    });
+
+    popover.addEventListener('input', (e) => {
+      if (e.target.id === 'lap-name-input') {
+        state.stopwatch.lapLabel = e.target.value;
+        saveState();
+      }
+    });
+
+    popover.addEventListener('keydown', (e) => {
+      if (e.target.id === 'lap-name-input' && e.key === 'Enter') {
+        e.preventDefault();
+        recordLap();
+      }
+    });
+
+    popover.addEventListener('change', (e) => {
+      if (e.target.id === 'set-autostart') {
+        appSettings.autoStart = e.target.checked;
+        ipcRenderer.invoke('pomo:set-auto-start', e.target.checked)
+          .then((v) => { appSettings.autoStart = Boolean(v); render(); })
+          .catch(() => {});
+      } else if (e.target.id === 'set-hotkey') {
+        ipcRenderer.invoke('pomo:set-hotkey', e.target.value)
+          .then((r) => { if (r && r.ok) { appSettings.hotkey = r.hotkey; render(); } })
+          .catch(() => {});
+      }
+    });
+
+    function recordLap() {
+      const sw = state.stopwatch;
+      const lapMs = Math.max(0, (sw.elapsedMs || 0) - (sw.lapStartElapsedMs || 0));
+      if (lapMs < 1000) return;
+      const laps = sw.laps || [];
+      const label = (sw.lapLabel || '').trim() || `分段 ${laps.length + 1}`;
+      sw.laps = [...laps, {
+        title: label,
+        durationMs: lapMs,
+        endedAt: new Date().toISOString()
+      }];
+      sw.lapStartElapsedMs = sw.elapsedMs || 0;
+      sw.lapLabel = '';
+      saveState();
+      render();
+    }
+
+    popover.addEventListener('click', (e) => {
+      if (e.target.id === 'btn-settings') { settingsOpen = true; render(); return; }
+      if (e.target.id === 'btn-settings-back') { settingsOpen = false; render(); return; }
+      if (e.target.id === 'btn-move-screen') { ipcRenderer.send('pomo:move-screen'); return; }
+      const viewBtn = e.target.closest('[data-view]');
+      if (viewBtn && !viewBtn.disabled) {
+        const v = viewBtn.getAttribute('data-view');
+        if (v === 'timer') state.view = 'timer';
+        else if (state.status === 'idle') {
+          state.mode = v; state.view = v; state.accruedMs = 0;
+          state.durationMs = (v === 'focus' ? state.focusMin : state.breakMin) * 60000;
+        } else state.view = v;
+        saveState(); render(); return;
+      }
+      const durBtn = e.target.closest('[data-dur]');
+      if (durBtn) {
+        const m = Number(durBtn.getAttribute('data-dur'));
+        if (state.mode === 'focus') state.focusMin = m; else state.breakMin = m;
+        state.durationMs = m * 60000; state.accruedMs = 0;
+        saveState(); render(); return;
+      }
+      const actBtn = e.target.closest('[data-act]');
+      if (!actBtn || actBtn.disabled) return;
+      const act = actBtn.getAttribute('data-act');
+      const sw = state.stopwatch, nowIso = new Date().toISOString();
+
+      if (act === 'sw-lap') {
+        recordLap();
+        return;
+      } else if (act === 'sw-lap-reset') {
+        sw.lapStartElapsedMs = sw.elapsedMs || 0;
+        saveState(); render(); return;
+      } else if (act === 'sw-toggle') {
+        if (sw.status === 'running') {
+          sw.status = 'paused'; sw.pauseMs = 0; sw.pausedAt = nowIso;
+          sw.breaks = [...(sw.breaks || []), { startedAt: nowIso, endedAt: null }];
+        } else {
+          const wasPaused = sw.status === 'paused';
+          sw.breaks = wasPaused ? (sw.breaks || []).map(b => b.endedAt === null ? { ...b, endedAt: nowIso } : b) : (sw.breaks || []);
+          sw.pausedTotalMs = (sw.pausedTotalMs || 0) + (wasPaused ? (sw.pauseMs || 0) : 0);
+          sw.pauseMs = 0; sw.pausedAt = null; sw.startedAt = sw.startedAt ?? nowIso; sw.status = 'running';
+        }
+      } else if (act === 'sw-finish') {
+        if (sw.elapsedMs >= 1000) {
+          const closed = (sw.breaks || []).map(b => b.endedAt === null ? { ...b, endedAt: nowIso } : b);
+          state.records = [...state.records, makeRecord(Date.now(), 'focus', sw.startedAt, sw.elapsedMs, sw.elapsedMs, true, 'stopwatch', closed, sw.laps || [])].slice(-200);
+        }
+        state.stopwatch = { status: 'idle', elapsedMs: 0, pauseMs: 0, pausedTotalMs: 0, startedAt: null, pausedAt: null, breaks: [], lapStartElapsedMs: 0, lapLabel: '', laps: [] };
+      } else if (act === 'sw-zero') {
+        state.stopwatch = { status: 'idle', elapsedMs: 0, pauseMs: 0, pausedTotalMs: 0, startedAt: null, pausedAt: null, breaks: [], lapStartElapsedMs: 0, lapLabel: '', laps: [] };
+      } else if (act === 'pomo-toggle') {
+        state.status = state.status === 'running' ? 'paused' : 'running';
+        if (state.status === 'running') state.startedAt = state.startedAt ?? nowIso;
+      } else if (act === 'pomo-reset') {
+        state.status = 'idle'; state.accruedMs = 0; state.startedAt = null;
+      } else if (act === 'pomo-skip') {
+        if (state.accruedMs >= 1000) {
+          state.records = [...state.records, makeRecord(Date.now(), state.mode, state.startedAt, state.durationMs, state.accruedMs, false, 'pomodoro')].slice(-200);
+        }
+        const nextMode = state.mode === 'focus' ? 'break' : 'focus';
+        state.mode = nextMode; state.view = nextMode; state.status = 'idle';
+        state.accruedMs = 0; state.durationMs = (nextMode === 'focus' ? state.focusMin : state.breakMin) * 60000; state.startedAt = null;
+      } else if (act === 'clear-records') {
+        state.records = [];
+      }
+      saveState(); render();
+    });
+
+    // 每秒只更新数字文本，不打断正在输入的「阅读名称」输入框焦点
+    function updateDynamicNodes() {
+      const isTimer = state.view === 'timer', sw = state.stopwatch;
+      const ratio = isTimer
+        ? (((sw.elapsedMs % DASH_STEP_MS) / DASH_STEP_MS) || (sw.status !== 'idle' ? 0.08 : 0))
+        : (state.durationMs > 0 ? Math.min(1, state.accruedMs / state.durationMs) : 0);
+      orbRingFg.setAttribute('stroke-dashoffset', String(CIRC * (1 - Math.max(0.06, ratio))));
+
+      if (isTimer) {
+        if (sw.status === 'paused') {
+          orbRingFg.setAttribute('stroke', '#f59e0b'); orbBadge.className = 'orb-badge badge-break'; orbBadge.textContent = `☕ ${fmtClockMs(sw.pauseMs)}`;
+        } else if (sw.status === 'running') {
+          orbRingFg.setAttribute('stroke', '#10b981'); orbBadge.className = 'orb-badge badge-work'; orbBadge.textContent = fmtClockMs(sw.elapsedMs);
+        } else {
+          orbRingFg.setAttribute('stroke', '#64748b'); orbBadge.className = 'orb-badge badge-idle'; orbBadge.textContent = '00:00';
+        }
+      } else {
+        const rem = Math.max(0, state.durationMs - state.accruedMs);
+        if (state.mode === 'break' || state.status === 'paused') {
+          orbRingFg.setAttribute('stroke', '#f59e0b'); orbBadge.className = 'orb-badge badge-break'; orbBadge.textContent = `☕ ${fmtClockMs(rem)}`;
+        } else if (state.status === 'running') {
+          orbRingFg.setAttribute('stroke', '#6366f1'); orbBadge.className = 'orb-badge badge-pomo'; orbBadge.textContent = fmtClockMs(rem);
+        } else {
+          orbRingFg.setAttribute('stroke', '#64748b'); orbBadge.className = 'orb-badge badge-idle'; orbBadge.textContent = `${state.focusMin}m`;
+        }
+      }
+
+      const workEl = document.getElementById('val-work');
+      const breakEl = document.getElementById('val-break');
+      const lapEl = document.getElementById('val-lap');
+      const lapBtn = document.getElementById('btn-lap-rec');
+      if (workEl) workEl.textContent = isTimer ? fmtClockMs(sw.elapsedMs) : fmtClockMs(Math.max(0, state.durationMs - state.accruedMs));
+      if (breakEl) breakEl.textContent = isTimer ? fmtClockMs(sw.status === 'paused' ? sw.pauseMs : (sw.pausedTotalMs || 0)) : fmtDuration(summarize(new Date()).todayBreakMs);
+      if (lapEl) {
+        const lapMs = Math.max(0, (sw.elapsedMs || 0) - (sw.lapStartElapsedMs || 0));
+        lapEl.textContent = fmtClockMs(lapMs);
+        if (lapBtn) lapBtn.disabled = lapMs < 1000;
+      }
+    }
+
+    function render() {
+      const isTimer = state.view === 'timer', sw = state.stopwatch;
+      const isPaused = isTimer ? sw.status === 'paused' : (state.status === 'paused' || state.mode === 'break');
+      const isRunning = isTimer ? sw.status === 'running' : state.status === 'running';
+      const stats = summarize(new Date());
+      const workReadout = isTimer ? fmtClockMs(sw.elapsedMs) : fmtClockMs(Math.max(0, state.durationMs - state.accruedMs));
+      const breakReadout = isTimer ? fmtClockMs(sw.status === 'paused' ? sw.pauseMs : (sw.pausedTotalMs || 0)) : fmtDuration(stats.todayBreakMs);
+      const idle = state.status === 'idle';
+      const currentLapMs = Math.max(0, (sw.elapsedMs || 0) - (sw.lapStartElapsedMs || 0));
+
+      const durRowHTML = (!idle || isTimer) ? '' : `<div class="dur-row">${
+        (state.mode === 'focus' ? [15, 25, 45, 60] : [5, 10, 15]).map(m =>
+          `<button type="button" data-dur="${m}" class="dur-chip ${(state.mode === 'focus' ? state.focusMin : state.breakMin) === m ? 'active' : ''}">${m} 分钟</button>`
+        ).join('')
+      }</div>`;
+
+      // 正计时专属「分段掐表（如：写一篇阅读）」模块
+      const lapBoxHTML = !isTimer ? '' : `
+        <div class="lap-box">
+          <div class="lap-top">
+            <input id="lap-name-input" class="lap-input" type="text" placeholder="分段名" value="${(sw.lapLabel || '').replace(/"/g, '&quot;')}" />
+            <span id="val-lap" class="lap-time">${fmtClockMs(currentLapMs)}</span>
+            <button id="btn-lap-rec" type="button" data-act="sw-lap" class="lap-btn" ${currentLapMs < 1000 ? 'disabled' : ''}>📍 记一段</button>
+            <button type="button" data-act="sw-lap-reset" class="lap-reset-btn" title="仅把当前分段清零重新计">重计本段</button>
+          </div>
+          ${(sw.laps && sw.laps.length > 0) ? `
+            <div style="display:flex;flex-direction:column;gap:2px;border-top:0.5px solid var(--border-l1);padding-top:4px;">
+              ${sw.laps.map((l, idx) => `
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--label-secondary);">
+                  <span>🏷 #${idx + 1} ${l.title}</span>
+                  <span style="font-variant-numeric:tabular-nums;font-weight:600;color:var(--label-primary);">${fmtClockMs(l.durationMs)}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      const controlsHTML = isTimer ? `
+        <div class="controls">
+          <button type="button" data-act="sw-toggle" class="btn-primary ${sw.status === 'running' ? 'pause' : ''}">
+            ${sw.status === 'running' ? '⏸ 暂停休息' : sw.status === 'paused' ? '▶ 继续干活' : '▶ 开始干活'}
+          </button>
+          <button type="button" data-act="sw-finish" class="btn-secondary" ${sw.elapsedMs < 1000 ? 'disabled' : ''}>结束记录</button>
+          <button type="button" data-act="sw-zero" class="btn-secondary" ${sw.status === 'idle' ? 'disabled' : ''}>归零</button>
+        </div>` : `
+        <div class="controls">
+          <button type="button" data-act="pomo-toggle" class="btn-primary ${state.status === 'running' ? 'pause' : ''}">
+            ${state.status === 'running' ? '⏸ 暂停' : state.status === 'paused' ? '▶ 继续' : '▶ 开始'}
+          </button>
+          <button type="button" data-act="pomo-reset" class="btn-secondary">重置</button>
+          <button type="button" data-act="pomo-skip" class="btn-secondary">跳过</button>
+        </div>`;
+
+      const todays = state.records.filter(r => sameLocalDay(new Date(r.startedAt), new Date()));
+      const timelineHTML = todays.length === 0
+        ? `<div style="font-size:11px;color:var(--label-secondary);padding:4px 0;">今天还没有记录，点「开始」记录第一段吧。</div>`
+        : todays.map(r => `
+          <div class="rec-row">
+            <span>${fmtDayTime(r.startedAt)}</span><div class="rec-sep"></div><span>${fmtDayTime(r.endedAt)}</span>
+            <span style="color:#6366f1;font-weight:600">${r.source === 'stopwatch' ? '计时' : r.mode === 'focus' ? '专注' : '休息'}</span>
+            <span>${fmtDuration(r.actualMs)}</span>
+            <span style="color:${r.completed ? '#10b981' : '#f59e0b'}">${r.completed ? '✓' : '–'}</span>
+          </div>
+          ${(r.laps || []).map((l, i) => `
+            <div class="break-row">
+              <span style="color:#6366f1">🏷 #${i + 1} ${l.title}</span><div class="rec-sep"></div>
+              <span style="font-variant-numeric:tabular-nums;font-weight:600">${fmtClockMs(l.durationMs)}</span>
+            </div>`).join('')}
+          ${(r.breaks || []).map(b => `
+            <div class="break-row">
+              <span>${fmtDayTime(b.startedAt)}</span><span style="color:#f59e0b">休息</span><div class="rec-sep"></div>
+              <span>${b.endedAt ? fmtDayTime(b.endedAt) : '进行中'}</span><span>${b.endedAt ? fmtDuration(closedBreakMs(b)) : ''}</span><span>🪂</span>
+            </div>`).join('')}
+        `).join('');
+
+      const mainHTML = `
+        <div class="mode-row">
+          <button type="button" data-view="focus" ${!idle ? 'disabled' : ''} class="mode-chip ${state.view === 'focus' ? 'active' : ''}">专注</button>
+          <button type="button" data-view="break" ${!idle ? 'disabled' : ''} class="mode-chip ${state.view === 'break' ? 'active' : ''}">休息</button>
+          <button type="button" data-view="timer" class="mode-chip ${state.view === 'timer' ? 'active' : ''}">正计时</button>
+        </div>
+        <div class="dual-grid">
+          <div class="dual-card ${isRunning && !isPaused ? 'active-work' : ''}">
+            <div class="dual-head"><span>${isTimer ? '⚡ 本次总干活' : '🍅 番茄剩余'}</span></div>
+            <div id="val-work" class="dual-time">${workReadout}</div>
+            <div class="dual-sub">今日专注 ${fmtDuration(stats.todayMs)}</div>
+          </div>
+          <div class="dual-card ${isPaused ? 'active-break' : ''}">
+            <div class="dual-head" style="${isPaused ? 'color:#f59e0b;font-weight:600' : ''}"><span>☕ ${sw.status === 'paused' ? '当前暂停' : '本趟休息'}</span></div>
+            <div id="val-break" class="dual-time" style="${isPaused ? 'color:#f59e0b' : ''}">${breakReadout}</div>
+            <div class="dual-sub">今日休息 ${fmtDuration(stats.todayBreakMs)}</div>
+          </div>
+        </div>
+        ${lapBoxHTML}
+        ${durRowHTML}
+        ${controlsHTML}
+        <div class="stats-row">
+          <div class="stat-box"><div class="stat-val" style="color:#10b981">${fmtDuration(stats.todayMs)}</div><div class="stat-lbl">今日专注</div></div>
+          <div class="stat-box"><div class="stat-val" style="color:#f59e0b">${fmtDuration(stats.todayBreakMs)}</div><div class="stat-lbl">今日休息</div></div>
+          <div class="stat-box"><div class="stat-val">${stats.todayCount} 个</div><div class="stat-lbl">今日番茄</div></div>
+        </div>
+        <div class="records-wrap">
+          <div class="records-head">
+            <span>今日记录</span>
+            ${state.records.length > 0 ? `<button type="button" data-act="clear-records" class="btn-clear">清空</button>` : ''}
+          </div>
+          ${timelineHTML}
+        </div>
+        <div class="hint-bar" style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <span style="text-align:left">${pinned ? '📌 已固定展开（点圆球恢复悬停）' : `点圆球固定 · ${(appSettings.hotkey || 'Alt+L').replace('Alt', 'Option')} 呼出/隐藏`}</span>
+          <button type="button" id="btn-settings" class="btn-clear">⚙️ 设置</button>
+        </div>
+      `;
+      const hotkeyOptions = Array.from(new Set(['Alt+L', 'Alt+P', 'Alt+K', 'Ctrl+Alt+L', appSettings.hotkey || 'Alt+L']));
+      const settingsHTML = `
+        <div class="records-head" style="font-size:12px;color:var(--label-primary);">
+          <span>⚙️ 设置</span>
+          <button type="button" id="btn-settings-back" class="btn-clear">← 返回</button>
+        </div>
+        <div class="settings-row">
+          <span>开机自启动</span>
+          <input type="checkbox" id="set-autostart" ${appSettings.autoStart ? 'checked' : ''} />
+        </div>
+        <div class="settings-row">
+          <span>呼出/隐藏快捷键</span>
+          <select id="set-hotkey" class="settings-select">
+            ${hotkeyOptions.map(h => `<option value="${h}" ${appSettings.hotkey === h ? 'selected' : ''}>${h.replace('Alt', 'Option')}</option>`).join('')}
+          </select>
+        </div>
+        <button type="button" id="btn-move-screen" class="btn-link">🖥 移到当前鼠标所在屏幕右上角</button>
+        <div class="settings-note">悬浮球会记住你拖放的位置，不再自动跳回；下次启动还在原处。自启动与快捷键修改立即生效。</div>
+      `;
+      popover.innerHTML = settingsOpen ? settingsHTML : mainHTML;
+      updateDynamicNodes();
+    }
+    ipcRenderer.invoke('pomo:get-settings').then((s) => {
+      if (s) appSettings = { hotkey: s.hotkey || appSettings.hotkey, autoStart: Boolean(s.autoStart) };
+      render();
+    }).catch(() => {});
+    render();
+  </script>
+</body>
+</html>
