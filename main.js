@@ -3,11 +3,22 @@ const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 
-// 跟随 macOS 系统深浅色模式
+const IS_MAC = process.platform === 'darwin';
+const IS_WIN = process.platform === 'win32';
+
+// 跟随系统深浅色模式
 nativeTheme.themeSource = 'system';
 
-if (process.platform === 'darwin' && app.dock) {
+// Windows 任务栏分组 / 通知归属需要 AppUserModelID
+if (IS_WIN) app.setAppUserModelId('com.pomodoro.orb');
+
+if (IS_MAC && app.dock) {
   app.dock.hide();
+}
+
+// 快捷键显示文案：mac 叫 Option，Windows 叫 Alt / Ctrl
+function prettyHotkey(accel) {
+  return IS_MAC ? accel.replace('Alt', 'Option') : accel.replace(/CommandOrControl|Command|Cmd/g, 'Ctrl');
 }
 
 let win = null;
@@ -57,18 +68,23 @@ function loadPosition() {
   return null;
 }
 
+// macOS 专属：窗口显示在所有桌面（Space）；Windows 上该调用无意义
+function setOnAllSpaces(on) {
+  if (IS_MAC) win.setVisibleOnAllWorkspaces(on);
+}
+
 // 移到指定屏幕右上角（仅手动触发：托盘菜单 / 设置按钮）
 function attachToDisplay(display) {
   if (!win) return;
   const { x: areaX, y: areaY, width: areaW } = display.workArea;
-  win.setVisibleOnAllWorkspaces(false);
+  setOnAllSpaces(false);
   win.setBounds({
     x: areaX + Math.max(20, areaW - WIN_WIDTH - 24),
     y: areaY + 60,
     width: WIN_WIDTH,
     height: WIN_HEIGHT
   });
-  win.setVisibleOnAllWorkspaces(true);
+  setOnAllSpaces(true);
   savePosition();
 }
 
@@ -77,9 +93,11 @@ function reattachToWindowDisplay() {
   if (!win) return;
   const bounds = win.getBounds();
   const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
-  win.setVisibleOnAllWorkspaces(false);
-  win.setVisibleOnAllWorkspaces(true);
+  setOnAllSpaces(false);
+  setOnAllSpaces(true);
   savePosition();
+  // Windows 拖动结束后重新声明置顶，避免被其他置顶窗口压住
+  if (IS_WIN) win.setAlwaysOnTop(true, 'screen-saver');
 }
 
 function createWindow() {
@@ -105,6 +123,7 @@ function createWindow() {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -112,7 +131,7 @@ function createWindow() {
   });
 
   win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true);
+  setOnAllSpaces(true);
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, 'index.html'));
 }
@@ -137,9 +156,16 @@ function toggleWindow() {
 }
 
 function createTray() {
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle('🍅');
-  tray.setToolTip(`番茄钟悬浮球 (${hotkey.replace('Alt', 'Option')} 呼出/隐藏)`);
+  if (IS_MAC) {
+    // macOS：空图标 + emoji 标题，跟随菜单栏深浅色
+    tray = new Tray(nativeImage.createEmpty());
+    tray.setTitle('🍅');
+  } else {
+    // Windows：菜单栏（通知区域）必须给真实图标
+    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
+    tray.on('double-click', () => toggleWindow());
+  }
+  tray.setToolTip(`番茄钟悬浮球 (${prettyHotkey(hotkey)} 呼出/隐藏)`);
   updateTrayMenu();
 }
 
@@ -147,7 +173,7 @@ function updateTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: win && win.isVisible() ? `隐藏悬浮球 (${hotkey.replace('Alt', 'Option')})` : `显示悬浮球 (${hotkey.replace('Alt', 'Option')})`,
+      label: win && win.isVisible() ? `隐藏悬浮球 (${prettyHotkey(hotkey)})` : `显示悬浮球 (${prettyHotkey(hotkey)})`,
       click: () => toggleWindow()
     },
     {
@@ -166,9 +192,10 @@ function updateTrayMenu() {
   ]));
 }
 
-// ---------- 开机自启动（LaunchAgent） ----------
+// ---------- 开机自启动 ----------
 function agentEnabled() {
-  return fs.existsSync(AGENT_PLIST);
+  if (IS_MAC) return fs.existsSync(AGENT_PLIST);
+  try { return app.getLoginItemSettings().openAtLogin; } catch { return false; }
 }
 
 function writeAgentPlist() {
@@ -194,6 +221,13 @@ function writeAgentPlist() {
 }
 
 function setAutoStart(enabled) {
+  if (IS_WIN) {
+    // Windows：写注册表 Run 项（打包后 process.execPath 就是 exe 本体）
+    try {
+      app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath });
+    } catch {}
+    return;
+  }
   try {
     if (enabled) {
       writeAgentPlist();
@@ -223,7 +257,7 @@ ipcMain.handle('pomo:set-hotkey', (_event, accel) => {
   if (ok) {
     hotkey = accel;
     saveConfig();
-    if (tray) tray.setToolTip(`番茄钟悬浮球 (${hotkey.replace('Alt', 'Option')} 呼出/隐藏)`);
+    if (tray) tray.setToolTip(`番茄钟悬浮球 (${prettyHotkey(hotkey)} 呼出/隐藏)`);
     updateTrayMenu();
   } else {
     globalShortcut.register(hotkey, toggleWindow);

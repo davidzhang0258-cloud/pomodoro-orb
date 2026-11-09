@@ -173,7 +173,7 @@
 </head>
 <body>
   <div class="stage">
-    <div class="orb-btn" id="orb-btn" title="按住跨屏拖动 · 单击固定面板 · Option+L 隐藏">
+    <div class="orb-btn" id="orb-btn" title="按住拖动 · 单击固定面板">
       <svg class="orb-ring-svg" viewBox="0 0 60 60">
         <circle cx="30" cy="30" r="26.5" fill="none" stroke="currentColor" stroke-opacity="0.14" stroke-width="3.5"></circle>
         <circle id="orb-ring-fg" cx="30" cy="30" r="26.5" fill="none" stroke="#10b981" stroke-width="3.8"
@@ -238,6 +238,9 @@
     let hovered = false, pinned = false, hoverTimer = null, lastTickAt = Date.now();
     let settingsOpen = false;
     let appSettings = { hotkey: 'Alt+L', autoStart: false };
+    // Windows 上把 Alt 显示成 Alt、Ctrl 显示成 Ctrl；mac 上 Alt 显示成 Option
+    const IS_MAC = typeof process !== 'undefined' && process.platform === 'darwin';
+    const fmtKey = (accel) => IS_MAC ? accel.replace('Alt', 'Option') : accel.replace(/CommandOrControl|Command|Cmd/g, 'Ctrl');
     const saveState = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {} };
 
     function summarize(now) {
@@ -604,7 +607,7 @@
           ${timelineHTML}
         </div>
         <div class="hint-bar" style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-          <span style="text-align:left">${pinned ? '📌 已固定展开（点圆球恢复悬停）' : `点圆球固定 · ${(appSettings.hotkey || 'Alt+L').replace('Alt', 'Option')} 呼出/隐藏`}</span>
+          <span style="text-align:left">${pinned ? '📌 已固定展开（点圆球恢复悬停）' : `点圆球固定 · ${fmtKey(appSettings.hotkey || 'Alt+L')} 呼出/隐藏`}</span>
           <button type="button" id="btn-settings" class="btn-clear">⚙️ 设置</button>
         </div>
       `;
@@ -621,7 +624,7 @@
         <div class="settings-row">
           <span>呼出/隐藏快捷键</span>
           <select id="set-hotkey" class="settings-select">
-            ${hotkeyOptions.map(h => `<option value="${h}" ${appSettings.hotkey === h ? 'selected' : ''}>${h.replace('Alt', 'Option')}</option>`).join('')}
+            ${hotkeyOptions.map(h => `<option value="${h}" ${appSettings.hotkey === h ? 'selected' : ''}>${fmtKey(h)}</option>`).join('')}
           </select>
         </div>
         <button type="button" id="btn-move-screen" class="btn-link">🖥 移到当前鼠标所在屏幕右上角</button>
