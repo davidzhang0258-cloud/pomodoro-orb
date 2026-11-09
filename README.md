@@ -35,7 +35,7 @@ Node.js 18+ and Electron 33 are needed only when running from source.
 
 ## Install on Windows
 
-1. Download `PomodoroOrb-1.0.0-win-x64-portable.zip` from [Releases](https://github.com/davidzhang0258-cloud/pomodoro-orb/releases/latest).
+1. Download `PomodoroOrb-1.0.0-win-x64.zip` from [Releases](https://github.com/davidzhang0258-cloud/pomodoro-orb/releases/latest).
 2. Extract the whole folder somewhere permanent (for example `D:\Apps\PomodoroOrb`).
 3. Run `PomodoroOrb.exe`.
 

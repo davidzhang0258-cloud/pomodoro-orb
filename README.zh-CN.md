@@ -35,7 +35,7 @@
 
 ## Windows 安装
 
-1. 从 [Releases](https://github.com/davidzhang0258-cloud/pomodoro-orb/releases/latest) 下载 `PomodoroOrb-1.0.0-win-x64-portable.zip`。
+1. 从 [Releases](https://github.com/davidzhang0258-cloud/pomodoro-orb/releases/latest) 下载 `PomodoroOrb-1.0.0-win-x64.zip`。
 2. 把整个文件夹解压到一个固定位置（例如 `D:\Apps\PomodoroOrb`）。
 3. 双击 `PomodoroOrb.exe`。
 
